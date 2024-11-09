@@ -1,0 +1,54 @@
+[package]
+name = "wasm-boids"
+version = "0.1.0"
+authors = ["William Lim <limwilliam23@gmail.com>"]
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+# kiddo = "4.2.1"
+nalgebra = { version = "0.33.0" }
+# The `console_error_panic_hook` crate provides better debugging of panics by
+# logging them with `console.error`. This is great for development, but requires
+# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
+# code size when deploying.
+console_error_panic_hook = { version = "0.1.7", optional = true }
+fixedbitset = "0.5.7"
+ecolor = "0.29.1"
+rand = "0.8.5"
+getrandom = { version = "0.2", features = ["js"] }
+
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+	'AngleInstancedArrays',
+	'console',
+	'Document',
+	'HtmlCanvasElement',
+	'HtmlImageElement',
+	'WebGlBuffer',
+	'WebGlVertexArrayObject',
+
+	'WebGl2RenderingContext',
+	'WebGlRenderingContext',
+	'WebGlProgram',
+	'WebGlTexture',
+	'WebGlShader',
+	'WebGlUniformLocation',
+	'Window',
+]
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
