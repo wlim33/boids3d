@@ -1,5 +1,5 @@
 [package]
-name = "wasm-boids"
+name = "boids-3d-rs"
 version = "0.1.0"
 authors = ["William Lim <limwilliam23@gmail.com>"]
 edition = "2021"
