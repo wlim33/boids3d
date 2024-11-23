@@ -26,7 +26,7 @@
     "url": "https://github.com/rustwasm/create-wasm-app/issues"
   },
   "dependencies": {
-    "wasm-boids": "file:../pkg"
+    "boids-3d-rs": "^0.1.0"
   },
   "homepage": "https://github.com/rustwasm/create-wasm-app#readme",
   "devDependencies": {

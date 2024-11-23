@@ -5,12 +5,39 @@ use core::f32;
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rand::Rng;
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlImageElement, WebGl2RenderingContext, WebGlProgram, WebGlTexture};
+use web_sys::{
+    HtmlImageElement, WebGl2RenderingContext, WebGlProgram, WebGlTexture, WebGlUniformLocation,
+};
+
+pub struct AttributeLocations {
+    position: i32,
+    normal: i32,
+    texcoord: i32,
+    face_id: i32,
+}
+
+#[derive(Clone)]
+pub struct UniformLocations {
+    world_view_projection: WebGlUniformLocation,
+    world: WebGlUniformLocation,
+    view_inverse: WebGlUniformLocation,
+    world_inverse_transpose: WebGlUniformLocation,
+    light_world_pos: WebGlUniformLocation,
+    light_color: WebGlUniformLocation,
+    color_mult: WebGlUniformLocation,
+    diffuse: WebGlUniformLocation,
+    face_index: WebGlUniformLocation,
+    specular: WebGlUniformLocation,
+    shininess: WebGlUniformLocation,
+    specular_factor: WebGlUniformLocation,
+}
 
 #[wasm_bindgen]
 pub struct GraphicsContext {
     gl: WebGl2RenderingContext,
     program: WebGlProgram,
+    attribute_locations: AttributeLocations,
+    uniform_locations: UniformLocations,
     height: f32,
     width: f32,
     last_time_stamp: f32,
@@ -49,8 +76,12 @@ impl GraphicsContext {
             texture,
         };
 
+        let attribute_locations = utils::get_attribute_locations(&gl, &program);
+        let uniform_locations = utils::get_uniform_locations(&gl, &program).unwrap();
         GraphicsContext {
             gl: gl.clone(),
+            attribute_locations,
+            uniform_locations,
             program,
             uniforms: global_uniforms,
             height,
@@ -142,12 +173,14 @@ impl GraphicsContext {
             WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT,
         );
         for r_id in render_ids {
+            let node = self.world.get_node(r_id);
+            let materials = self.world.get_materials_node(r_id);
             draw_object(
-                &self.gl,
-                &self.program,
-                self.world.get_node(r_id),
-                self.world.get_materials_node(r_id),
+                self,
+                node,
+                materials,
                 &self.uniforms,
+                &self.uniform_locations,
             )
         }
     }
@@ -307,11 +340,11 @@ pub fn load_attributes(
 }
 
 pub fn draw_object(
-    gl: &WebGl2RenderingContext,
-    shader_program: &WebGlProgram,
+    render_context: &GraphicsContext,
     obj: &scene::Node,
     materials: &scene::RenderNode,
     globals: &GlobalUniforms,
+    uniform_locations: &UniformLocations,
 ) {
     //let world =
     //    Matrix4::from(obj.orientation.to_homogeneous()).append_translation(&obj.world_position);
@@ -321,67 +354,46 @@ pub fn draw_object(
     //world_view_projection[(1, 1)] *= 0.5;
     //world_view_projection[(2, 2)] *= 0.5;
     let world_inverse_transpose = world.transpose();
-    utils::write_uniform_mat4(
-        gl,
-        shader_program,
+    render_context.write_uniform_mat4(
         world_view_projection.as_slice(),
-        "u_worldViewProjection",
+        &uniform_locations.world_view_projection,
     );
-    utils::write_uniform_mat4(gl, shader_program, world.as_slice(), "u_world");
-    utils::write_uniform_mat4(
-        gl,
-        shader_program,
+    render_context.write_uniform_mat4(world.as_slice(), &uniform_locations.world);
+    render_context.write_uniform_mat4(
         world_inverse_transpose.as_slice(),
-        "u_worldInverseTranspose",
+        &uniform_locations.world_inverse_transpose,
     );
 
-    utils::write_uniform_mat4(
-        gl,
-        shader_program,
+    render_context.write_uniform_mat4(
         globals.view_inverse.as_slice(),
-        "u_viewInverse",
+        &uniform_locations.view_inverse,
     );
-    utils::write_uniform_vec3(
-        gl,
-        shader_program,
+    render_context.write_uniform_vec3(
         globals.light_world_pos.as_slice(),
-        "u_lightWorldPos",
+        &uniform_locations.light_world_pos,
     );
-    utils::write_uniform_vec4(
-        gl,
-        shader_program,
+    render_context.write_uniform_vec4(
         globals.light_color.as_slice(),
-        "u_lightColor",
+        &uniform_locations.light_color,
     );
 
-    utils::write_uniform_vec4(
-        gl,
-        shader_program,
+    render_context.write_uniform_vec4(
         materials.color_mult.as_slice(),
-        "u_colorMult",
+        &uniform_locations.color_mult,
     );
-    utils::write_uniform_vec4(
-        gl,
-        shader_program,
-        materials.specular.as_slice(),
-        "u_specular",
-    );
-    utils::write_uniform_float(gl, shader_program, materials.shininess, "u_shininess");
-    utils::write_uniform_float(
-        gl,
-        shader_program,
+    render_context.write_uniform_vec4(materials.specular.as_slice(), &uniform_locations.specular);
+    render_context.write_uniform_float(materials.shininess, &uniform_locations.shininess);
+    render_context.write_uniform_float(
         materials.specular_factor,
-        "u_specularFactor",
+        &uniform_locations.specular_factor,
     );
-    utils::write_uniform_texture_unit(
-        gl,
-        shader_program,
+    render_context.write_uniform_texture_unit(
         materials.diffuse_texture_unit,
         &globals.texture,
-        "u_diffuse",
+        &uniform_locations.diffuse,
     );
-    utils::write_uniform_uint_array(gl, shader_program, &materials.face_index, "u_faceIndex");
-    gl.draw_elements_with_i32(
+    render_context.write_uniform_uint_array(&materials.face_index, &uniform_locations.face_index);
+    render_context.gl.draw_elements_with_i32(
         WebGl2RenderingContext::TRIANGLES,
         match materials.shape {
             RenderShape::Cube => 36_i32,
