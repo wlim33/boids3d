@@ -1,41 +1,16 @@
 mod boids;
+mod gl_utils;
 mod scene;
-mod utils;
+use crate::gl_utils::{AttributeLocations, UniformLocations};
 use core::f32;
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rand::Rng;
 use wasm_bindgen::prelude::*;
-use web_sys::{
-    HtmlImageElement, WebGl2RenderingContext, WebGlProgram, WebGlTexture, WebGlUniformLocation,
-};
-
-pub struct AttributeLocations {
-    position: i32,
-    normal: i32,
-    texcoord: i32,
-    face_id: i32,
-}
-
-#[derive(Clone)]
-pub struct UniformLocations {
-    world_view_projection: WebGlUniformLocation,
-    world: WebGlUniformLocation,
-    view_inverse: WebGlUniformLocation,
-    world_inverse_transpose: WebGlUniformLocation,
-    light_world_pos: WebGlUniformLocation,
-    light_color: WebGlUniformLocation,
-    color_mult: WebGlUniformLocation,
-    diffuse: WebGlUniformLocation,
-    face_index: WebGlUniformLocation,
-    specular: WebGlUniformLocation,
-    shininess: WebGlUniformLocation,
-    specular_factor: WebGlUniformLocation,
-}
+use web_sys::{HtmlImageElement, WebGl2RenderingContext, WebGlProgram, WebGlTexture};
 
 #[wasm_bindgen]
 pub struct GraphicsContext {
     gl: WebGl2RenderingContext,
-    program: WebGlProgram,
     attribute_locations: AttributeLocations,
     uniform_locations: UniformLocations,
     height: f32,
@@ -50,23 +25,18 @@ pub struct GraphicsContext {
 #[wasm_bindgen]
 impl GraphicsContext {
     pub fn new(canvas_id: &str, height: f32, width: f32) -> Self {
-        utils::set_panic_hook();
+        gl_utils::set_panic_hook();
         let mut scene_world = scene::World::new();
-        let gl = utils::new_webgl_context(canvas_id).unwrap();
-        //let skybox_program = setup_skybox_shaders(&gl).unwrap();
-        let program = utils::setup_shaders(&gl).unwrap();
-        //let mut uniform_locs = HashMap::new();
+        let gl = gl_utils::new_webgl_context(canvas_id).unwrap();
+        let program = gl_utils::setup_shaders(&gl).unwrap();
 
-        let shape = RenderShape::Cube;
-
-        let sprite_sheet: HtmlImageElement = utils::get_sprite_sheet("spritesheet").unwrap();
+        let boids_shape = RenderShape::Cube;
+        let sprite_sheet: HtmlImageElement = gl_utils::get_sprite_sheet("spritesheet").unwrap();
         let texture: WebGlTexture =
-            utils::load_image_into_3_d_texture(&gl, &sprite_sheet, 13, 7).unwrap();
+            gl_utils::load_image_into_3_d_texture(&gl, &sprite_sheet, 13, 7).unwrap();
         let mut rng = rand::thread_rng();
-        //scene_world.generate_bodies(100, rng.gen_range(0..=91));
         scene_world.generate_boids(100, rng.gen_range(0..=91));
-        //scene_world.generate_nested_bodies(10);
-        load_attributes(&gl, &program, shape);
+        load_attributes(&gl, &program, boids_shape);
 
         let global_uniforms = GlobalUniforms {
             view_projection: Matrix4::identity(),
@@ -76,13 +46,12 @@ impl GraphicsContext {
             texture,
         };
 
-        let attribute_locations = utils::get_attribute_locations(&gl, &program);
-        let uniform_locations = utils::get_uniform_locations(&gl, &program).unwrap();
+        let attribute_locations = gl_utils::get_attribute_locations(&gl, &program);
+        let uniform_locations = gl_utils::get_uniform_locations(&gl, &program);
         GraphicsContext {
             gl: gl.clone(),
             attribute_locations,
             uniform_locations,
-            program,
             uniforms: global_uniforms,
             height,
             width,
@@ -108,25 +77,11 @@ impl GraphicsContext {
     pub fn get_node_count(&self) -> usize {
         self.world.get_node_count()
     }
-    pub fn set_boids_params(
-        &mut self,
-        cohesion: f32,
-        turn: f32,
-        matching: f32,
-        avoid: f32,
-        //min_speed: f32,
-        //max_speed: f32,
-        //visual_range: f32,
-        //protected_range: f32,
-    ) {
-        self.world.bonus_parameters.cohesion_factor = cohesion;
-        self.world.bonus_parameters.turn_factor = turn;
-        self.world.bonus_parameters.matching_factor = matching;
-        self.world.bonus_parameters.avoid_factor = avoid;
-        //self.world.bonus_parameters.min_speed = min_speed;
-        //self.world.bonus_parameters.max_speed = max_speed;
-        //self.world.bonus_parameters.visual_range = visual_range;
-        //self.world.bonus_parameters.protected_range = protected_range;
+    pub fn set_boids_params(&mut self, cohesion: f32, turn: f32, matching: f32, avoid: f32) {
+        self.world.boids_params.cohesion_factor = cohesion;
+        self.world.boids_params.turn_factor = turn;
+        self.world.boids_params.matching_factor = matching;
+        self.world.boids_params.avoid_factor = avoid;
     }
 
     pub fn add_boids(&mut self, count: usize) {
@@ -138,7 +93,6 @@ impl GraphicsContext {
         let t = ms * 0.001;
         let frame_time = t - self.last_time_stamp;
         self.last_time_stamp = t;
-        //self.world.update(frame_time);
         self.world.boids_update(frame_time);
         self.time_step_accumulator += frame_time;
         self.calculate_view();
@@ -155,7 +109,6 @@ impl GraphicsContext {
     }
 
     pub fn set_canvas_dimensions(&mut self, width: f32, height: f32) {
-        //self.gl.viewport(0, 0, height as i32, width as i32);
         self.height = height;
         self.width = width;
         self.world.update_aspect_ratio(width, height);
@@ -229,9 +182,9 @@ pub fn load_attributes(
     match shape {
         RenderShape::Triangle => {
             let vertices: [f32; 9] = [
-                -0.5, -0.5, 0.0, //0
-                0.5, -0.5, 0.0, //1.0
-                0.0, 0.5, 0.0, //2
+                -0.5, -0.5, 0.0, // commented to avoid linter (each row is a vertex)
+                0.5, -0.5, 0.0, //
+                0.0, 0.5, 0.0, //
             ];
             let tex_coord: [f32; 6] = [
                 0.0, 0.0, //
@@ -239,13 +192,13 @@ pub fn load_attributes(
                 1.0, 0.0, //
             ];
             let normals: [f32; 9] = [
-                -1.0, -1.0, 0.5, //0
-                1.0, -1.0, 0.5, //1.0
-                -1.0, 1.0, 0.5, //2
+                -1.0, -1.0, 0.5, //
+                1.0, -1.0, 0.5, //
+                -1.0, 1.0, 0.5, //
             ];
 
             let indices: [u16; 3] = [0, 1, 2];
-            utils::setup_vertices_indices(
+            gl_utils::setup_vertices_indices(
                 gl,
                 &vertices,
                 &tex_coord,
@@ -275,23 +228,23 @@ pub fn load_attributes(
                 0.0, -1.0, 0.0, 0.0, -1.0, 0.0, 0.0, -1.0,
             ];
             let indices: [u16; 36] = [
-                0, 1, 2, // a
-                0, 2, 3, // a
-                4, 5, 6, // a
-                4, 6, 7, // a
-                8, 9, 10, // a
-                8, 10, 11, // a
-                12, 13, 14, // a
-                12, 14, 15, // a
-                16, 17, 18, // a
-                16, 18, 19, // a
-                20, 21, 22, // a
-                20, 22, 23, // a
+                0, 1, 2, //
+                0, 2, 3, //
+                4, 5, 6, //
+                4, 6, 7, //
+                8, 9, 10, //
+                8, 10, 11, //
+                12, 13, 14, //
+                12, 14, 15, //
+                16, 17, 18, //
+                16, 18, 19, //
+                20, 21, 22, //
+                20, 22, 23, //
             ];
             let face_indices: [u8; 24] = [
                 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5,
             ];
-            utils::setup_attributes_2d_array(
+            gl_utils::setup_attributes_2d_array(
                 gl,
                 &vertices,
                 &tex_coord,
@@ -322,11 +275,11 @@ pub fn load_attributes(
             ];
 
             let indices: [u16; 6] = [
-                0, 1, 2, // vertex
-                1, 2, 3, // vertex
+                0, 1, 2, //
+                1, 2, 3, //
             ];
 
-            utils::setup_vertices_indices(
+            gl_utils::setup_vertices_indices(
                 gl,
                 &vertices,
                 &tex_coord,
@@ -346,13 +299,8 @@ pub fn draw_object(
     globals: &GlobalUniforms,
     uniform_locations: &UniformLocations,
 ) {
-    //let world =
-    //    Matrix4::from(obj.orientation.to_homogeneous()).append_translation(&obj.world_position);
     let world: Matrix4<f32> = obj.global_transform;
     let world_view_projection: Matrix4<f32> = globals.view_projection * world;
-    //world_view_projection[(0, 0)] *= 2.0;
-    //world_view_projection[(1, 1)] *= 0.5;
-    //world_view_projection[(2, 2)] *= 0.5;
     let world_inverse_transpose = world.transpose();
     render_context.write_uniform_mat4(
         world_view_projection.as_slice(),
@@ -363,11 +311,6 @@ pub fn draw_object(
         world_inverse_transpose.as_slice(),
         &uniform_locations.world_inverse_transpose,
     );
-
-    render_context.write_uniform_mat4(
-        globals.view_inverse.as_slice(),
-        &uniform_locations.view_inverse,
-    );
     render_context.write_uniform_vec3(
         globals.light_world_pos.as_slice(),
         &uniform_locations.light_world_pos,
@@ -377,16 +320,6 @@ pub fn draw_object(
         &uniform_locations.light_color,
     );
 
-    render_context.write_uniform_vec4(
-        materials.color_mult.as_slice(),
-        &uniform_locations.color_mult,
-    );
-    render_context.write_uniform_vec4(materials.specular.as_slice(), &uniform_locations.specular);
-    render_context.write_uniform_float(materials.shininess, &uniform_locations.shininess);
-    render_context.write_uniform_float(
-        materials.specular_factor,
-        &uniform_locations.specular_factor,
-    );
     render_context.write_uniform_texture_unit(
         materials.diffuse_texture_unit,
         &globals.texture,

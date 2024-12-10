@@ -1,6 +1,5 @@
-use crate::{AttributeLocations, GraphicsContext, RenderObject, UniformLocations};
-use js_sys::Float32Array;
-use nalgebra::{Matrix4, Unit, UnitQuaternion, Vector3};
+use crate::{GraphicsContext, RenderObject};
+use nalgebra::{Unit, UnitQuaternion, Vector3};
 use std::f32;
 use wasm_bindgen::prelude::*;
 use web_sys::{
@@ -26,6 +25,23 @@ pub fn set_panic_hook() {
     console_error_panic_hook::set_once();
 }
 
+pub struct AttributeLocations {
+    pub position: i32,
+    pub normal: i32,
+    pub texcoord: i32,
+    pub face_id: i32,
+}
+
+#[derive(Clone)]
+pub struct UniformLocations {
+    pub world_view_projection: WebGlUniformLocation,
+    pub world: WebGlUniformLocation,
+    pub world_inverse_transpose: WebGlUniformLocation,
+    pub light_world_pos: WebGlUniformLocation,
+    pub light_color: WebGlUniformLocation,
+    pub diffuse: WebGlUniformLocation,
+    pub face_index: WebGlUniformLocation,
+}
 impl GraphicsContext {
     pub fn write_uniform_uint_array(&self, uniform_value: &[u32], loc: &WebGlUniformLocation) {
         self.gl.uniform1uiv_with_u32_array(Some(loc), uniform_value);
@@ -126,38 +142,48 @@ impl GraphicsContext {
     }
 }
 
+pub fn u_or_log(
+    gl: &WebGl2RenderingContext,
+    shader_program: &WebGlProgram,
+    name: &str,
+) -> WebGlUniformLocation {
+    let opt = gl.get_uniform_location(shader_program, name);
+    if opt.is_none() {
+        log!("{}", name);
+    }
+    opt.unwrap()
+}
 pub fn get_uniform_locations(
     gl: &WebGl2RenderingContext,
     shader_program: &WebGlProgram,
-) -> Option<UniformLocations> {
-    let world_view_projection = gl.get_uniform_location(shader_program, "u_worldViewProjection")?;
-    let world = gl.get_uniform_location(shader_program, "u_world")?;
-    let view_inverse = gl.get_uniform_location(shader_program, "u_viewInverse")?;
-    let world_inverse_transpose =
-        gl.get_uniform_location(shader_program, "u_worldInverseTranspose")?;
-    let light_world_pos = gl.get_uniform_location(shader_program, "u_lightWorldPos")?;
-    let light_color = gl.get_uniform_location(shader_program, "u_lightColor")?;
-    let color_mult = gl.get_uniform_location(shader_program, "u_colorMult")?;
-    let diffuse = gl.get_uniform_location(shader_program, "u_diffuse")?;
-    let face_index = gl.get_uniform_location(shader_program, "u_faceIndex")?;
-    let specular = gl.get_uniform_location(shader_program, "u_specular")?;
-    let shininess = gl.get_uniform_location(shader_program, "u_shininess")?;
-    let specular_factor = gl.get_uniform_location(shader_program, "u_specularFactor")?;
+) -> UniformLocations {
+    let world_view_projection = u_or_log(gl, shader_program, "u_worldViewProjection");
+    let world = u_or_log(gl, shader_program, "u_world");
+    //let view_inverse = u_or_log(gl, shader_program, "u_viewInverse");
+    let world_inverse_transpose = u_or_log(gl, shader_program, "u_worldInverseTranspose");
+    let light_world_pos = u_or_log(gl, shader_program, "u_lightWorldPos");
+    let light_color = u_or_log(gl, shader_program, "u_lightColor");
+    //let color_mult = u_or_log(gl, shader_program, "u_colorMult");
+    let diffuse = u_or_log(gl, shader_program, "u_diffuse");
+    let face_index = u_or_log(gl, shader_program, "u_faceIndex");
+    //let specular = u_or_log(gl, shader_program, "u_specular");
+    //let shininess = u_or_log(gl, shader_program, "u_shininess");
+    //let specular_factor = u_or_log(gl, shader_program, "u_specularFactor");
 
-    Some(UniformLocations {
+    UniformLocations {
         world_view_projection,
         world,
-        view_inverse,
+        //view_inverse,
         world_inverse_transpose,
         light_world_pos,
         light_color,
-        color_mult,
+        //color_mult,
         diffuse,
         face_index,
-        specular,
-        shininess,
-        specular_factor,
-    })
+        //specular,
+        //shininess,
+        //specular_factor,
+    }
 }
 
 pub fn get_attribute_locations(
@@ -264,7 +290,7 @@ pub fn setup_shaders(gl: &WebGl2RenderingContext) -> Result<WebGlProgram, JsValu
         flat in uint v_faceId;
 
         uniform vec4 u_lightColor;
-        uniform vec4 u_colorMult;
+        //uniform vec4 u_colorMult;
         uniform mediump sampler2DArray u_diffuse;
         uniform uint u_faceIndex[6];
         uniform vec4 u_specular;
@@ -450,27 +476,6 @@ pub fn load_image_into_3_d_texture(
                 image,
             )
             .unwrap();
-            //
-            //gl.tex_parameteri(
-            //    WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-            //    WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-            //    WebGl2RenderingContext::LINEAR as i32,
-            //);
-            //gl.tex_parameteri(
-            //    WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-            //    WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-            //    WebGl2RenderingContext::LINEAR as i32,
-            //);
-            //gl.tex_parameteri(
-            //    WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-            //    WebGl2RenderingContext::TEXTURE_WRAP_S,
-            //    WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-            //);
-            //gl.tex_parameteri(
-            //    WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-            //    WebGl2RenderingContext::TEXTURE_WRAP_T,
-            //    WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-            //);
         }
     }
 
@@ -594,36 +599,4 @@ pub fn get_sprite_coordinates(
         (x as f32 + 1.0) * sprite_width,
         (y as f32 + 1.0) * sprite_height,
     )
-}
-
-pub fn setup_instances(gl: &WebGl2RenderingContext, instance_count: u32) -> Vec<Float32Array> {
-    let matrix_data = js_sys::Float32Array::new_with_length(instance_count * 16);
-    let mut array_views = vec![];
-    for i in 0..instance_count {
-        let byte_offset = i * 16 * 4;
-
-        let num_floats = 16;
-        let view = js_sys::Float32Array::new_with_byte_offset_and_length(
-            &matrix_data.buffer(),
-            byte_offset,
-            num_floats,
-        );
-        array_views.push(view);
-    }
-
-    let matrix_buffer = gl.create_buffer();
-    gl.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, matrix_buffer.as_ref());
-    gl.buffer_data_with_i32(
-        WebGl2RenderingContext::ARRAY_BUFFER,
-        matrix_data.byte_length() as i32,
-        WebGl2RenderingContext::DYNAMIC_DRAW,
-    );
-
-    let bytes_per_matrix = 4 * 16;
-
-    //for i in 0..4 {
-    //    let loc =
-    //}
-
-    array_views
 }

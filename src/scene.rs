@@ -188,7 +188,7 @@ pub struct World {
     materials: slotmap::SecondaryMap<NodeID, RenderNode>,
     scene_info: slotmap::SecondaryMap<NodeID, SceneNode>,
     pub camera_info: CameraParameters,
-    pub bonus_parameters: boids::BoidsParameters,
+    pub boids_params: boids::BoidsParameters,
 }
 pub struct CameraParameters {
     pub target_id: NodeID,
@@ -236,6 +236,7 @@ impl World {
             stack.extend(&s.children);
         }
     }
+
     pub fn generate_nested_bodies(&mut self, mut depth: usize, face: u32) {
         let mut parent = self.root_id;
         while depth > 0 {
@@ -380,7 +381,7 @@ impl World {
         arena[root_id].children.push(camera_id);
         arena[camera_id].children.push(gimbal_y);
         arena[gimbal_y].children.push(target_id);
-        let bonus_parameters = boids::BoidsParameters::new();
+        let boids_params = boids::BoidsParameters::new();
         World {
             root_id,
             camera_id,
@@ -388,7 +389,7 @@ impl World {
             materials: SecondaryMap::new(),
             scene_info: SecondaryMap::new(),
             size,
-            bonus_parameters,
+            boids_params,
             camera_info: CameraParameters {
                 target_id,
                 gimbal_y,
@@ -494,10 +495,10 @@ impl World {
                 }
                 let neighbor = self.scene_info.get(*boid_id).unwrap();
                 let dist = &current_pos.metric_distance(&neighbor.target_pos);
-                if dist < &self.bonus_parameters.protected_range {
+                if dist < &self.boids_params.protected_range {
                     avoid_v += current_pos - neighbor.target_pos;
                 }
-                if dist < &self.bonus_parameters.visual_range {
+                if dist < &self.boids_params.visual_range {
                     avg_v += neighbor.velocity;
                     avg_p += neighbor.target_pos;
                     count += 1;
@@ -506,45 +507,38 @@ impl World {
             let current_b = self.scene_info.get_mut(b).unwrap();
             avg_v = avg_v.scale(1.0 / (count as f32));
             avg_p = avg_p.scale(1.0 / (count as f32));
-            current_b.velocity += avoid_v.scale(self.bonus_parameters.avoid_factor)
-                + (avg_v - current_b.velocity).scale(self.bonus_parameters.matching_factor)
-                + (avg_p - current_b.target_pos).scale(self.bonus_parameters.cohesion_factor);
+            current_b.velocity += avoid_v.scale(self.boids_params.avoid_factor)
+                + (avg_v - current_b.velocity).scale(self.boids_params.matching_factor)
+                + (avg_p - current_b.target_pos).scale(self.boids_params.cohesion_factor);
             if current_b.target_pos.x < -self.size.x / 2.0 {
-                current_b.velocity.x += self.bonus_parameters.turn_factor;
+                current_b.velocity.x += self.boids_params.turn_factor;
             }
             if current_b.target_pos.y < -self.size.y / 2.0 {
-                current_b.velocity.y += self.bonus_parameters.turn_factor;
+                current_b.velocity.y += self.boids_params.turn_factor;
             }
 
             if current_b.target_pos.z < -self.size.z / 2.0 {
-                current_b.velocity.z += self.bonus_parameters.turn_factor;
+                current_b.velocity.z += self.boids_params.turn_factor;
             }
             if current_b.target_pos.x > self.size.x / 2.0 {
-                current_b.velocity.x -= self.bonus_parameters.turn_factor;
+                current_b.velocity.x -= self.boids_params.turn_factor;
             }
             if current_b.target_pos.y > self.size.y / 2.0 {
-                current_b.velocity.y -= self.bonus_parameters.turn_factor;
+                current_b.velocity.y -= self.boids_params.turn_factor;
             }
 
             if current_b.target_pos.z > self.size.z / 2.0 {
-                current_b.velocity.z -= self.bonus_parameters.turn_factor;
+                current_b.velocity.z -= self.boids_params.turn_factor;
             }
-            //if i % 2 == 0 {
-            //    current_b.velocity.x = current_b.velocity.x * (1.0 - self.bonus_parameters.bias)
-            //        + (1.0 * self.bonus_parameters.bias);
-            //} else {
-            //    current_b.velocity.x = current_b.velocity.x * (1.0 - self.bonus_parameters.bias)
-            //        + (-1.0 * self.bonus_parameters.bias);
-            //}
 
-            if current_b.velocity.magnitude() < self.bonus_parameters.min_speed {
+            if current_b.velocity.magnitude() < self.boids_params.min_speed {
                 current_b
                     .velocity
-                    .set_magnitude(self.bonus_parameters.min_speed);
+                    .set_magnitude(self.boids_params.min_speed);
             } else {
                 current_b.velocity = current_b
                     .velocity
-                    .cap_magnitude(self.bonus_parameters.max_speed);
+                    .cap_magnitude(self.boids_params.max_speed);
             }
         }
         self.update(delta);

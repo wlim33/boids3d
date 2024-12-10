@@ -74,7 +74,7 @@ function setup() {
     gl_context.add_boids(100);
     count_label.innerHTML = gl_context.get_node_count();
   });
-  const handle_slider = (event) => {
+  const handle_slider = () => {
     cohesion_label.innerHTML = cohesion_slider.value;
     matching_label.innerHTML = matching_slider.value;
     avoid_label.innerHTML = avoid_slider.value;
