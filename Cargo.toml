@@ -21,7 +21,7 @@ nalgebra = { version = "0.33.0" }
 # code size when deploying.
 console_error_panic_hook = { version = "0.1.7", optional = true }
 fixedbitset = "0.5.7"
-ecolor = "0.29.1"
+ecolor = "0.30.0"
 rand = "0.8.5"
 getrandom = { version = "0.2", features = ["js"] }
 slotmap = "1.0.7"
