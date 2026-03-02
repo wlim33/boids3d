@@ -3,16 +3,20 @@ mod gl_utils;
 mod scene;
 use crate::gl_utils::{AttributeLocations, UniformLocations};
 use core::f32;
+use js_sys::{Float32Array, Uint16Array};
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 use rand::Rng;
+pub use scene::World;
+use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlImageElement, WebGl2RenderingContext, WebGlProgram, WebGlTexture};
+use web_sys::{HtmlImageElement, WebGl2RenderingContext, WebGlBuffer, WebGlProgram, WebGlTexture};
 
 #[wasm_bindgen]
 pub struct GraphicsContext {
     gl: WebGl2RenderingContext,
     attribute_locations: AttributeLocations,
     uniform_locations: UniformLocations,
+    program: WebGlProgram,
     height: f32,
     width: f32,
     last_time_stamp: f32,
@@ -20,6 +24,9 @@ pub struct GraphicsContext {
     time_step_accumulator: f32,
     uniforms: GlobalUniforms,
     world: scene::World,
+    instancing_enabled: bool,
+    instanced_world_buffer: Option<WebGlBuffer>,
+    instanced_normal_buffer: Option<WebGlBuffer>,
 }
 
 #[wasm_bindgen]
@@ -52,6 +59,7 @@ impl GraphicsContext {
             gl: gl.clone(),
             attribute_locations,
             uniform_locations,
+            program,
             uniforms: global_uniforms,
             height,
             width,
@@ -59,6 +67,9 @@ impl GraphicsContext {
             max_time_step: 1.0 / 60.0,
             time_step_accumulator: 0.0,
             world: scene_world,
+            instancing_enabled: false,
+            instanced_world_buffer: None,
+            instanced_normal_buffer: None,
         }
     }
     pub fn calculate_view(&mut self) {
@@ -67,12 +78,29 @@ impl GraphicsContext {
             self.world.camera_info.perpective.as_matrix() * self.uniforms.view_inverse;
     }
 
+    fn write_use_instance_matrices(&self, enabled: bool) {
+        self.gl.uniform1i(
+            Some(&self.uniform_locations.use_instance_matrices),
+            enabled as i32,
+        );
+    }
+
+    fn ensure_instanced_buffer(&mut self, buffer_slot: &mut Option<WebGlBuffer>) -> WebGlBuffer {
+        if buffer_slot.is_none() {
+            *buffer_slot = Some(self.gl.create_buffer().unwrap());
+        }
+        buffer_slot.as_ref().unwrap().clone()
+    }
+
     pub fn set_max_timestep(&mut self, ms: f32) {
         self.max_time_step = ms;
     }
 
     pub fn get_max_timestep(&self) -> f32 {
         self.max_time_step
+    }
+    pub fn set_instancing_enabled(&mut self, enabled: bool) {
+        self.instancing_enabled = enabled;
     }
     pub fn get_node_count(&self) -> usize {
         self.world.get_node_count()
@@ -87,6 +115,15 @@ impl GraphicsContext {
     pub fn add_boids(&mut self, count: usize) {
         let mut rng = rand::thread_rng();
         self.world.generate_boids(count, rng.gen_range(0..=91));
+    }
+
+    pub fn reset_boids(&mut self, count: usize) {
+        let mut rng = rand::thread_rng();
+        self.world = scene::World::new();
+        self.world.generate_boids(count, rng.gen_range(0..=91));
+        self.calculate_view();
+        self.last_time_stamp = 0.0;
+        self.time_step_accumulator = 0.0;
     }
 
     pub fn raw_tick(&mut self, ms: f32) {
@@ -114,36 +151,166 @@ impl GraphicsContext {
         self.world.update_aspect_ratio(width, height);
     }
 
-    fn draw(&mut self, render_ids: Vec<scene::NodeID>) {
-        self.gl
-            .viewport(0, 0, self.width as i32, self.height as i32);
-        self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        self.gl.clear_depth(1.0);
-        self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
-        self.gl.enable(WebGl2RenderingContext::CULL_FACE);
-        self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
-        self.gl.clear(
-            WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT,
+    pub fn replace_boid_mesh(
+        &mut self,
+        positions: Float32Array,
+        normals: Float32Array,
+        tex_coords: Float32Array,
+        indices: Uint16Array,
+    ) -> Result<(), JsValue> {
+        let vertex_data = float32_array_to_vec(&positions);
+        if vertex_data.len() % 3 != 0 {
+            return Err(JsValue::from_str(
+                "positions must contain 3 floats per vertex",
+            ));
+        }
+        if vertex_data.is_empty() {
+            return Err(JsValue::from_str("positions cannot be empty"));
+        }
+        let vertex_count = vertex_data.len() / 3;
+        let normals_vec = ensure_length(float32_array_to_vec(&normals), vertex_data.len());
+        let tex_coords_len = vertex_count * 2;
+        let tex_coords_vec = ensure_length(float32_array_to_vec(&tex_coords), tex_coords_len);
+
+        let mut index_data = vec![0u16; indices.length() as usize];
+        indices.copy_to(&mut index_data);
+        if index_data.is_empty() {
+            return Err(JsValue::from_str("mesh must define at least one triangle"));
+        }
+
+        let face_indices = vec![0u8; vertex_count];
+        load_custom_mesh(
+            &self.gl,
+            &self.program,
+            &vertex_data,
+            &tex_coords_vec,
+            &normals_vec,
+            &index_data,
+            &face_indices,
         );
-        for r_id in render_ids {
-            let node = self.world.get_node(r_id);
-            let materials = self.world.get_materials_node(r_id);
-            draw_object(
-                self,
-                node,
-                materials,
-                &self.uniforms,
-                &self.uniform_locations,
-            )
+        self.world.set_global_index_count(index_data.len() as i32);
+        Ok(())
+    }
+
+    fn draw_instanced(&mut self, transforms: &[Matrix4<f32>], materials: &scene::RenderNode) {
+        if transforms.is_empty() {
+            return;
+        }
+        self.write_instanced_matrices(transforms);
+        self.write_use_instance_matrices(true);
+        let identity = Matrix4::identity();
+        self.write_uniform_mat4(identity.as_slice(), &self.uniform_locations.world);
+        self.write_uniform_mat4(
+            identity.as_slice(),
+            &self.uniform_locations.world_inverse_transpose,
+        );
+        self.write_uniform_uint_array(&materials.face_index, &self.uniform_locations.face_index);
+        self.write_uniform_texture_unit(
+            materials.diffuse_texture_unit,
+            &self.uniforms.texture,
+            &self.uniform_locations.diffuse,
+        );
+        self.gl.draw_elements_instanced_with_i32(
+            WebGl2RenderingContext::TRIANGLES,
+            materials.index_count,
+            WebGl2RenderingContext::UNSIGNED_SHORT,
+            0,
+            transforms.len() as i32,
+        );
+        self.write_use_instance_matrices(false);
+        self.cleanup_instanced_attributes(
+            [
+                self.attribute_locations.instance_matrix0,
+                self.attribute_locations.instance_matrix1,
+                self.attribute_locations.instance_matrix2,
+                self.attribute_locations.instance_matrix3,
+            ],
+            [
+                self.attribute_locations.instance_normal_matrix0,
+                self.attribute_locations.instance_normal_matrix1,
+                self.attribute_locations.instance_normal_matrix2,
+                self.attribute_locations.instance_normal_matrix3,
+            ],
+        );
+    }
+
+    fn write_instanced_matrices(&mut self, transforms: &[Matrix4<f32>]) {
+        let mut world_data = Vec::with_capacity(transforms.len() * 16);
+        let mut normal_data = Vec::with_capacity(transforms.len() * 16);
+        for transform in transforms {
+            world_data.extend_from_slice(transform.as_slice());
+            let normal = transform
+                .try_inverse()
+                .unwrap_or_else(|| Matrix4::identity())
+                .transpose();
+            normal_data.extend_from_slice(normal.as_slice());
+        }
+        let world_buffer = self.ensure_instanced_buffer(&mut self.instanced_world_buffer);
+        let normal_buffer = self.ensure_instanced_buffer(&mut self.instanced_normal_buffer);
+        self.set_instanced_matrix_attributes(
+            &world_data,
+            [
+                self.attribute_locations.instance_matrix0,
+                self.attribute_locations.instance_matrix1,
+                self.attribute_locations.instance_matrix2,
+                self.attribute_locations.instance_matrix3,
+            ],
+            &world_buffer,
+        );
+        self.set_instanced_matrix_attributes(
+            &normal_data,
+            [
+                self.attribute_locations.instance_normal_matrix0,
+                self.attribute_locations.instance_normal_matrix1,
+                self.attribute_locations.instance_normal_matrix2,
+                self.attribute_locations.instance_normal_matrix3,
+            ],
+            &normal_buffer,
+        );
+    }
+
+    fn set_instanced_matrix_attributes(
+        &self,
+        data: &[f32],
+        locations: [i32; 4],
+        buffer: &WebGlBuffer,
+    ) {
+        let array = unsafe { Float32Array::view(data) };
+        self.gl
+            .bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(buffer));
+        self.gl.buffer_data_with_array_buffer_view(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            &array,
+            WebGl2RenderingContext::DYNAMIC_DRAW,
+        );
+        let bytes_per_float = std::mem::size_of::<f32>() as i32;
+        let stride = 16 * bytes_per_float;
+        for (i, &loc) in locations.iter().enumerate() {
+            if loc < 0 {
+                continue;
+            }
+            let offset = (i as i32) * 4 * bytes_per_float;
+            self.gl.enable_vertex_attrib_array(loc as u32);
+            self.gl.vertex_attrib_pointer_with_i32(
+                loc as u32,
+                4,
+                WebGl2RenderingContext::FLOAT,
+                false,
+                stride,
+                offset,
+            );
+            self.gl.vertex_attrib_divisor(loc as u32, 1);
         }
     }
 
-    pub fn zoom_camera(&mut self, delta: f32) {
-        self.world.zoom_camera(delta);
-    }
-
-    pub fn move_camera(&mut self, right: f32, up: f32, forward: f32) {
-        self.world.move_camera(Vector3::new(right, up, forward));
+    fn cleanup_instanced_attributes(&self, world_locations: [i32; 4], normal_locations: [i32; 4]) {
+        for &loc in world_locations.iter().chain(normal_locations.iter()) {
+            if loc < 0 {
+                continue;
+            }
+            self.gl.vertex_attrib_divisor(loc as u32, 0);
+            self.gl.disable_vertex_attrib_array(loc as u32);
+        }
     }
 }
 
@@ -292,6 +459,41 @@ pub fn load_attributes(
     }
 }
 
+pub fn load_custom_mesh(
+    gl: &WebGl2RenderingContext,
+    shader_program: &WebGlProgram,
+    vertices: &[f32],
+    tex_coords: &[f32],
+    normals: &[f32],
+    indices: &[u16],
+    face_indices: &[u8],
+) {
+    gl_utils::setup_attributes_2d_array(
+        gl,
+        vertices,
+        tex_coords,
+        normals,
+        indices,
+        face_indices,
+        shader_program,
+    );
+}
+
+fn float32_array_to_vec(array: &Float32Array) -> Vec<f32> {
+    let mut dst = vec![0.0; array.length() as usize];
+    array.copy_to(&mut dst);
+    dst
+}
+
+fn ensure_length(mut data: Vec<f32>, target_len: usize) -> Vec<f32> {
+    if data.len() > target_len {
+        data.truncate(target_len);
+    } else {
+        data.resize(target_len, 0.0);
+    }
+    data
+}
+
 pub fn draw_object(
     render_context: &GraphicsContext,
     obj: &scene::Node,
@@ -300,12 +502,7 @@ pub fn draw_object(
     uniform_locations: &UniformLocations,
 ) {
     let world: Matrix4<f32> = obj.global_transform;
-    let world_view_projection: Matrix4<f32> = globals.view_projection * world;
     let world_inverse_transpose = world.transpose();
-    render_context.write_uniform_mat4(
-        world_view_projection.as_slice(),
-        &uniform_locations.world_view_projection,
-    );
     render_context.write_uniform_mat4(world.as_slice(), &uniform_locations.world);
     render_context.write_uniform_mat4(
         world_inverse_transpose.as_slice(),
@@ -328,13 +525,7 @@ pub fn draw_object(
     render_context.write_uniform_uint_array(&materials.face_index, &uniform_locations.face_index);
     render_context.gl.draw_elements_with_i32(
         WebGl2RenderingContext::TRIANGLES,
-        match materials.shape {
-            RenderShape::Cube => 36_i32,
-            RenderShape::Tetrahedron => 12_i32,
-            RenderShape::Quad => 6_i32,
-            RenderShape::Triangle => 3_i32,
-            _ => 3_i32,
-        },
+        materials.index_count,
         WebGl2RenderingContext::UNSIGNED_SHORT,
         0,
     );

@@ -30,17 +30,26 @@ pub struct AttributeLocations {
     pub normal: i32,
     pub texcoord: i32,
     pub face_id: i32,
+    pub instance_matrix0: i32,
+    pub instance_matrix1: i32,
+    pub instance_matrix2: i32,
+    pub instance_matrix3: i32,
+    pub instance_normal_matrix0: i32,
+    pub instance_normal_matrix1: i32,
+    pub instance_normal_matrix2: i32,
+    pub instance_normal_matrix3: i32,
 }
 
 #[derive(Clone)]
 pub struct UniformLocations {
-    pub world_view_projection: WebGlUniformLocation,
+    pub view_projection: WebGlUniformLocation,
     pub world: WebGlUniformLocation,
     pub world_inverse_transpose: WebGlUniformLocation,
     pub light_world_pos: WebGlUniformLocation,
     pub light_color: WebGlUniformLocation,
     pub diffuse: WebGlUniformLocation,
     pub face_index: WebGlUniformLocation,
+    pub use_instance_matrices: WebGlUniformLocation,
 }
 impl GraphicsContext {
     pub fn write_uniform_uint_array(&self, uniform_value: &[u32], loc: &WebGlUniformLocation) {
@@ -157,7 +166,7 @@ pub fn get_uniform_locations(
     gl: &WebGl2RenderingContext,
     shader_program: &WebGlProgram,
 ) -> UniformLocations {
-    let world_view_projection = u_or_log(gl, shader_program, "u_worldViewProjection");
+    let view_projection = u_or_log(gl, shader_program, "u_viewProjection");
     let world = u_or_log(gl, shader_program, "u_world");
     //let view_inverse = u_or_log(gl, shader_program, "u_viewInverse");
     let world_inverse_transpose = u_or_log(gl, shader_program, "u_worldInverseTranspose");
@@ -166,12 +175,13 @@ pub fn get_uniform_locations(
     //let color_mult = u_or_log(gl, shader_program, "u_colorMult");
     let diffuse = u_or_log(gl, shader_program, "u_diffuse");
     let face_index = u_or_log(gl, shader_program, "u_faceIndex");
+    let use_instance_matrices = u_or_log(gl, shader_program, "u_useInstanceMatrices");
     //let specular = u_or_log(gl, shader_program, "u_specular");
     //let shininess = u_or_log(gl, shader_program, "u_shininess");
     //let specular_factor = u_or_log(gl, shader_program, "u_specularFactor");
 
     UniformLocations {
-        world_view_projection,
+        view_projection,
         world,
         //view_inverse,
         world_inverse_transpose,
@@ -183,6 +193,7 @@ pub fn get_uniform_locations(
         //specular,
         //shininess,
         //specular_factor,
+        use_instance_matrices,
     }
 }
 
@@ -195,6 +206,14 @@ pub fn get_attribute_locations(
         normal: gl.get_attrib_location(shader_program, "a_normal"),
         position: gl.get_attrib_location(shader_program, "a_position"),
         texcoord: gl.get_attrib_location(shader_program, "a_texcoord"),
+        instance_matrix0: gl.get_attrib_location(shader_program, "a_instanceMatrix0"),
+        instance_matrix1: gl.get_attrib_location(shader_program, "a_instanceMatrix1"),
+        instance_matrix2: gl.get_attrib_location(shader_program, "a_instanceMatrix2"),
+        instance_matrix3: gl.get_attrib_location(shader_program, "a_instanceMatrix3"),
+        instance_normal_matrix0: gl.get_attrib_location(shader_program, "a_instanceNormalMatrix0"),
+        instance_normal_matrix1: gl.get_attrib_location(shader_program, "a_instanceNormalMatrix1"),
+        instance_normal_matrix2: gl.get_attrib_location(shader_program, "a_instanceNormalMatrix2"),
+        instance_normal_matrix3: gl.get_attrib_location(shader_program, "a_instanceNormalMatrix3"),
     }
 }
 
@@ -245,16 +264,25 @@ pub fn setup_shaders(gl: &WebGl2RenderingContext) -> Result<WebGlProgram, JsValu
         WebGl2RenderingContext::VERTEX_SHADER,
         r##"#version 300 es
 
-        uniform mat4 u_worldViewProjection;
+        uniform mat4 u_viewProjection;
         uniform mat4 u_world;
         uniform mat4 u_viewInverse;
         uniform mat4 u_worldInverseTranspose;
+        uniform bool u_useInstanceMatrices;
         uniform vec3 u_lightWorldPos;
 
         in vec4 a_position;
         in vec3 a_normal;
         in vec2 a_texcoord;
         in uint a_faceId;
+        in vec4 a_instanceMatrix0;
+        in vec4 a_instanceMatrix1;
+        in vec4 a_instanceMatrix2;
+        in vec4 a_instanceMatrix3;
+        in vec4 a_instanceNormalMatrix0;
+        in vec4 a_instanceNormalMatrix1;
+        in vec4 a_instanceNormalMatrix2;
+        in vec4 a_instanceNormalMatrix3;
 
         out vec4 v_position;
         out vec2 v_texCoord;
@@ -264,12 +292,21 @@ pub fn setup_shaders(gl: &WebGl2RenderingContext) -> Result<WebGlProgram, JsValu
         flat out uint v_faceId;
 
         void main() {
+            mat4 instanceWorld = mat4(a_instanceMatrix0, a_instanceMatrix1, a_instanceMatrix2, a_instanceMatrix3);
+            mat4 instanceNormal = mat4(
+                a_instanceNormalMatrix0,
+                a_instanceNormalMatrix1,
+                a_instanceNormalMatrix2,
+                a_instanceNormalMatrix3,
+            );
+            mat4 world = u_useInstanceMatrices ? instanceWorld : u_world;
+            mat4 worldInverseTranspose = u_useInstanceMatrices ? instanceNormal : u_worldInverseTranspose;
             v_faceId = a_faceId;
             v_texCoord = a_texcoord;
-            v_position = u_worldViewProjection * a_position;
-            v_normal = (u_worldInverseTranspose * vec4(a_normal, 0.0)).xyz;
-            v_surfaceToLight = u_lightWorldPos - (u_world * a_position).xyz;
-            v_surfaceToView = (u_viewInverse[3] - (u_world * a_position)).xyz;
+            v_position = (u_viewProjection * world) * a_position;
+            v_normal = (worldInverseTranspose * vec4(a_normal, 0.0)).xyz;
+            v_surfaceToLight = u_lightWorldPos - (world * a_position).xyz;
+            v_surfaceToView = (u_viewInverse[3] - (world * a_position)).xyz;
             gl_Position = v_position;
         }
         "##,

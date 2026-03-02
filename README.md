@@ -1,4 +1,8 @@
 # Boids 3D
+[![CI](https://github.com/wlim33/boids3d/actions/workflows/main.yml/badge.svg)](https://github.com/wlim33/boids3d/actions/workflows/main.yml)
+[![crates.io](https://img.shields.io/crates/v/boids-3d-rs?label=crate)](https://crates.io/crates/boids-3d-rs)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE_APACHE)
+[![wasm-pack](https://img.shields.io/badge/wasm--pack-supported-239120?logo=wasm)](https://rustwasm.github.io/wasm-pack/)
 Boids is an artificial life program that mimics the flocking behavior of birds. This is an implementation of the original algorithm, extended to 3 dimensions.
 **live demo:** [https://boids.wlim.dev/](https://boids.wlim.dev/)
 
@@ -46,6 +50,16 @@ Camera movement is handled by JavaScript events, and subsequently passed to the 
 * `scene.rs` contains the scene graph implementation.
 * `lib.rs` contains the render pipeline and the exposed functions that are called from the browser.
 * `gl_utils.rs` contains the majority of the OpenGl setup and buffer writes. 
+* You can drag a `.gltf` file directly onto the canvas (with embedded buffers and 16-bit indices) to swap the boid mesh at runtime.
+
+### UI Controls
+The browser UI wraps the wasm module, exposing these convenient controls:
+
+* **Starting boids slider** – change the initial flock size and immediately reset the scene so the renderer starts with the requested count.
+* **Parameter sliders (cohesion, matching, avoidance, turn)** – tweak the three steering factors live and watch the behavior update. Labels next to each slider show the current value.
+* **FPS readout** – shows the rolling average frame time in milliseconds plus the equivalent FPS (`avg_ms ms | fps`).
+* **Add buttons (1/10/100)** – spawn more boids on demand and update the on-screen count.
+* **Mouse controls** – left-click to lock the pointer and look around, scroll to adjust FOV, WASD + arrows to move, and `P` to drop extra cubes referenced by the scene graph.
 
 ## Next Steps
 ### Scene Graph
@@ -54,6 +68,13 @@ Camera movement is handled by JavaScript events, and subsequently passed to the 
 * GPU instancing, as currently each boid has it's own uniforms which means more draw calls. This might require [batching](https://docs.unity3d.com/Manual/DrawCallBatching.html) if I add the option to have different entities to be drawn at the same time.
 ### Physics Engine
 * Boids is pretty simple as the original program just takes in one parameter, delta time. Adding a physics engine will  require a more fleshed out pipeline.
+
+## Testing & Benchmarking
+The repo now exposes unit tests for the scene graph as well as a `criterion` benchmark that times `boids_update`.
+
+- `cargo test`
+- `cargo bench --bench boids_update`
+- `cargo bench --bench boids_update` (runs the full suite covering `boids_update`, `world_update`, render object collection, and `generate_boids` across multiple scales)
 
 
 ## License

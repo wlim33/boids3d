@@ -1,0 +1,82 @@
+# Benchmark Report
+
+## 2025-11-18T11:38:03Z
+## 2025-11-18T11:40:41Z
+- Command: `cargo bench --bench boids_update`
+- Output:
+  - warning: unexpected `cfg` condition name: `wasm_bindgen_unstable_test_coverage`
+  -   --> src/lib.rs:28:1
+  -    |
+  - 28 | #[wasm_bindgen]
+  -    | ^^^^^^^^^^^^^^^
+  -    |
+  -    = help: expected names are: `docsrs`, `feature`, and `test` and 31 more
+  -    = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+  -    = help: try referring to `wasm_bindgen::prelude::__wasm_bindgen_class_marker` crate for guidance on how handle this unexpected cfg
+  -    = help: the attribute macro `wasm_bindgen::prelude::__wasm_bindgen_class_marker` may come from an old version of the `wasm_bindgen_macro` crate, try updating your dependency with `cargo update -p wasm_bindgen_macro`
+  -    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  -    = note: `#[warn(unexpected_cfgs)]` on by default
+  -    = note: this warning originates in the attribute macro `wasm_bindgen::prelude::__wasm_bindgen_class_marker` (in Nightly builds, run with -Z macro-backtrace for more info)
+  - 
+  - warning: unexpected `cfg` condition name: `wasm_bindgen_unstable_test_coverage`
+  -   --> src/lib.rs:28:1
+  -    |
+  - 28 | #[wasm_bindgen]
+  -    | ^^^^^^^^^^^^^^^
+  -    |
+  -    = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+  -    = help: try referring to `wasm_bindgen::prelude::__wasm_bindgen_class_marker` crate for guidance on how handle this unexpected cfg
+  -    = help: the attribute macro `wasm_bindgen::prelude::__wasm_bindgen_class_marker` may come from an old version of the `wasm_bindgen_macro` crate, try updating your dependency with `cargo update -p wasm_bindgen_macro`
+  -    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  -    = note: this warning originates in the attribute macro `wasm_bindgen::prelude::__wasm_bindgen_class_marker` (in Nightly builds, run with -Z macro-backtrace for more info)
+  - 
+  - warning: variable does not need to be mutable
+  -    --> src/lib.rs:128:13
+  -     |
+  - 128 |         let mut vertex_data = float32_array_to_vec(&positions);
+  -     |             ----^^^^^^^^^^^
+  -     |             |
+  -     |             help: remove this `mut`
+  -     |
+  -     = note: `#[warn(unused_mut)]` on by default
+  - 
+  - warning: function `setup_vertices` is never used
+  -    --> src/gl_utils.rs:395:8
+  -     |
+  - 395 | pub fn setup_vertices(
+  -     |        ^^^^^^^^^^^^^^
+  -     |
+  -     = note: `#[warn(dead_code)]` on by default
+  - 
+  - warning: function `create_texture` is never used
+  -    --> src/gl_utils.rs:410:8
+  -     |
+  - 410 | pub fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
+  -     |        ^^^^^^^^^^^^^^
+  - 
+  - warning: function `load_image_into_texture` is never used
+  -    --> src/gl_utils.rs:485:8
+  -     |
+  - 485 | pub fn load_image_into_texture(
+  -     |        ^^^^^^^^^^^^^^^^^^^^^^^
+  - 
+  - warning: function `update_bodies` is never used
+  -    --> src/gl_utils.rs:575:8
+  -     |
+  - 575 | pub fn update_bodies(bodies: &mut [RenderObject], delta: f32) {
+  -     |        ^^^^^^^^^^^^^
+  - 
+  - warning: function `get_sprite_coordinates` is never used
+  -    --> src/gl_utils.rs:586:8
+  -     |
+  - 586 | pub fn get_sprite_coordinates(
+  -     |        ^^^^^^^^^^^^^^^^^^^^^^
+  - 
+  - warning: `boids-3d-rs` (lib) generated 20 warnings (12 duplicates) (run `cargo fix --lib -p boids-3d-rs` to apply 1 suggestion)
+  -     Finished `bench` profile [optimized] target(s) in 0.13s
+  -      Running benches/boids_update.rs (target/release/deps/boids_update-0c2676cc896a8d61)
+  - 
+  - running 0 tests
+  - 
+  - test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

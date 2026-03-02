@@ -63,6 +63,7 @@ pub struct RenderNode {
     pub diffuse_texture_unit: i32,
     pub face_index: [u32; 6],
     pub shape: RenderShape,
+    pub index_count: i32,
 }
 impl RenderNode {
     pub fn new_cube(face: u32) -> Self {
@@ -78,23 +79,12 @@ impl RenderNode {
             specular_factor: rng.gen_range(0.0..1.0),
             specular: nalgebra::Vector4::new(1.0, 1.0, 1.0, 1.0),
             face_index: [face, face, face, face, face, face],
+            index_count: 36,
         }
     }
     pub fn new_random() -> Self {
-        let mut rng = thread_rng();
-        let base_color = rng.gen_range(0.0..240.0);
-        let color =
-            ecolor::rgb_from_hsv((rng.gen_range(base_color..(base_color + 120.0)), 0.5, 1.0));
-        let face = rng.gen_range(0..91);
-        RenderNode {
-            shape: RenderShape::Cube,
-            diffuse_texture_unit: 0,
-            color_mult: nalgebra::Vector4::new(color[0], color[1], color[2], 1.0),
-            shininess: rng.gen_range(0.0..500.0),
-            specular_factor: rng.gen_range(0.0..1.0),
-            specular: nalgebra::Vector4::new(1.0, 1.0, 1.0, 1.0),
-            face_index: [face, face, face, face, face, face],
-        }
+        let face = thread_rng().gen_range(0..91);
+        RenderNode::new_cube(face)
     }
 }
 
@@ -262,6 +252,12 @@ impl World {
             );
             self.materials.insert(id, r.clone());
         });
+    }
+
+    pub fn set_global_index_count(&mut self, count: i32) {
+        for render_node in self.materials.values_mut() {
+            render_node.index_count = count;
+        }
     }
 
     pub fn generate_bodies(&mut self, count: usize, face: u32) {
@@ -505,11 +501,15 @@ impl World {
                 }
             }
             let current_b = self.scene_info.get_mut(b).unwrap();
-            avg_v = avg_v.scale(1.0 / (count as f32));
-            avg_p = avg_p.scale(1.0 / (count as f32));
-            current_b.velocity += avoid_v.scale(self.boids_params.avoid_factor)
-                + (avg_v - current_b.velocity).scale(self.boids_params.matching_factor)
-                + (avg_p - current_b.target_pos).scale(self.boids_params.cohesion_factor);
+            current_b.velocity += avoid_v.scale(self.boids_params.avoid_factor);
+            if count > 0 {
+                let inv_count = 1.0 / (count as f32);
+                let avg_v = avg_v.scale(inv_count);
+                let avg_p = avg_p.scale(inv_count);
+                current_b.velocity += (avg_v - current_b.velocity)
+                    .scale(self.boids_params.matching_factor)
+                    + (avg_p - current_b.target_pos).scale(self.boids_params.cohesion_factor);
+            }
             if current_b.target_pos.x < -self.size.x / 2.0 {
                 current_b.velocity.x += self.boids_params.turn_factor;
             }
@@ -542,5 +542,40 @@ impl World {
             }
         }
         self.update(delta);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_global_index_count_updates_materials() {
+        let mut world = World::new();
+        world.generate_boids(3, 0);
+        world.set_global_index_count(99);
+        for node in world.materials.values() {
+            assert_eq!(node.index_count, 99);
+        }
+    }
+
+    #[test]
+    fn get_all_boids_matches_generated_count() {
+        let mut world = World::new();
+        world.generate_boids(5, 0);
+        assert_eq!(world.get_all_boids().len(), 5);
+    }
+
+    #[test]
+    fn scene_node_update_forces_moves_forward() {
+        let mut node = SceneNode::new(
+            Vector3::zeros(),
+            Vector3::new(1.0, 1.0, 1.0),
+            UnitQuaternion::identity(),
+        );
+        node.velocity = Vector3::new(1.0, 0.0, 0.0);
+        node.acceleration = Vector3::new(0.0, 0.0, 0.0);
+        node.update_forces(1.0);
+        assert!(node.target_pos.x > 0.0);
     }
 }
